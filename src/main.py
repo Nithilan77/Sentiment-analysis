@@ -245,14 +245,19 @@ async def predict_from_file(file: UploadFile = File(...)):
 @app.get("/keywords", tags=["Analysis"])
 def get_keywords(top_n: int = 20):
     """
-    Returns top words per sentiment class grouped by aspect.
+    Returns top meaningful bigrams per sentiment class grouped by aspect.
+    e.g. good service, worst food, slow service
     """
     try:
+        import nltk
+        nltk.download('averaged_perceptron_tagger', quiet=True)
+        nltk.download('averaged_perceptron_tagger_eng', quiet=True)
+        from nltk.util import ngrams
+
         data_path = Path(__file__).resolve().parent.parent / 'data' / 'processed' / 'reviews_clean.csv'
         df = pd.read_csv(data_path)
         df = df.dropna(subset=['clean_text'])
 
-        # aspect seed words
         ASPECTS = {
             'Quality'   : ['quality', 'good', 'great', 'excellent', 'poor', 'best',
                            'worst', 'amazing', 'terrible', 'outstanding', 'average',
@@ -281,25 +286,33 @@ def get_keywords(top_n: int = 20):
                 min(50000, len(df[df['sentiment'] == sentiment])), random_state=42
             ).tolist()
 
-            # count all words
-            text  = ' '.join(subset).lower()
-            words = re.findall(r'\b[a-z]{3,}\b', text)
-            counts = Counter(words)
+            # extract all bigrams from corpus
+            all_bigrams = []
+            for review in subset:
+                tokens = str(review).lower().split()
+                all_bigrams.extend([' '.join(bg) for bg in ngrams(tokens, 2)])
 
-            # group by aspect
+            bigram_counts = Counter(all_bigrams)
+
+            # group bigrams by aspect
             aspect_result = {}
             for aspect, seeds in ASPECTS.items():
-                aspect_words = []
-                for word in seeds:
-                    if word in counts:
-                        aspect_words.append({
-                            'word' : word,
-                            'count': counts[word]
-                        })
-                # sort by count descending
-                aspect_words = sorted(aspect_words, key=lambda x: x['count'], reverse=True)
-                if aspect_words:
-                    aspect_result[aspect] = aspect_words[:top_n]
+                aspect_bigrams = []
+                for bigram, count in bigram_counts.most_common(100000):
+                    words = bigram.split()
+                    # bigram must contain at least one aspect seed word
+                    if any(seed in words for seed in seeds):
+                        # both words must be meaningful (length > 2)
+                        if all(len(w) > 2 for w in words):
+                            aspect_bigrams.append({
+                                'word' : bigram,
+                                'count': count
+                            })
+                    if len(aspect_bigrams) >= top_n:
+                        break
+
+                if aspect_bigrams:
+                    aspect_result[aspect] = aspect_bigrams[:top_n]
 
             result[sentiment] = aspect_result
 
