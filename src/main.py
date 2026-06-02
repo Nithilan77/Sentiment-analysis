@@ -324,8 +324,11 @@ def get_keywords(top_n: int = 20):
 @app.get("/aspects", tags=["Analysis"])
 def extract_aspects(text: str):
     """
-    Extract aspects and associated words from a single review.
+    Extract meaningful aspect phrases from a single review.
+    e.g. good service, slow service, incredible service
     """
+    from nltk.util import ngrams
+
     ASPECTS = {
         'Quality'   : ['quality', 'good', 'great', 'excellent', 'poor', 'best',
                        'worst', 'amazing', 'terrible', 'outstanding', 'average',
@@ -339,22 +342,61 @@ def extract_aspects(text: str):
         'Price'     : ['price', 'expensive', 'cheap', 'worth', 'value', 'cost',
                        'overpriced', 'affordable', 'reasonable', 'pricey', 'money',
                        'paid', 'charge', 'bill', 'fee', 'budget'],
-        'Ambience'  : ['ambience', 'atmosphere', 'clean', 'dirty', 'cozy', 'noise',
-                       'noisy', 'quiet', 'comfortable', 'crowded', 'parking',
-                       'location', 'decor', 'environment', 'vibe', 'seating'],
+        'Ambience'  : ['ambience', 'atmosphere', 'clean', 'dirty', 'cozy', 'noisy',
+                       'quiet', 'comfortable', 'crowded', 'parking', 'location',
+                       'decor', 'environment', 'vibe'],
         'Experience': ['experience', 'visit', 'recommend', 'return', 'back',
                        'disappointed', 'satisfied', 'happy', 'upset', 'surprised',
                        'expected', 'impressed', 'enjoyed', 'regret', 'loved']
     }
 
-    clean     = preprocess(text)
-    tokens    = set(clean.lower().split())
-    detected  = {}
+    DESCRIPTORS = {
+        'good', 'great', 'best', 'worst', 'poor', 'bad', 'amazing', 'terrible',
+        'slow', 'quick', 'fast', 'friendly', 'rude', 'clean', 'dirty', 'fresh',
+        'cold', 'hot', 'expensive', 'cheap', 'quiet', 'noisy', 'comfortable',
+        'excellent', 'horrible', 'perfect', 'awful', 'wonderful', 'fantastic',
+        'delicious', 'bland', 'tasty', 'overpriced', 'affordable', 'crowded',
+        'attentive', 'unprofessional', 'polite', 'satisfied', 'disappointed',
+        'impressed', 'enjoyed', 'recommend', 'incredible', 'flawless', 'lovely'
+    }
+
+    STOPWORDS = {'and', 'the', 'was', 'were', 'are', 'but', 'for',
+                 'not', 'with', 'this', 'that', 'have', 'has', 'had',
+                 'its', 'our', 'your', 'their', 'from', 'even', 'though',
+                 'also', 'just', 'very', 'too', 'all', 'any', 'each'}
+
+    # clean text
+    clean_text   = re.sub(r'[^a-zA-Z\s]', ' ', str(text).lower())
+    clean_text   = re.sub(r'\s+', ' ', clean_text).strip()
+    tokens       = clean_text.split()
+    clean_tokens = [t for t in tokens if t not in STOPWORDS and len(t) > 2]
+    token_set    = set(clean_tokens)
+    all_bigrams  = [' '.join(bg) for bg in ngrams(clean_tokens, 2)]
+
+    used_phrases = set()
+    detected     = {}
 
     for aspect, seeds in ASPECTS.items():
-        matched = [w for w in seeds if w in tokens]
-        if matched:
-            detected[aspect] = matched
+        matched_phrases = []
+
+        # single word matches
+        for seed in seeds:
+            if seed in token_set and seed not in used_phrases:
+                matched_phrases.append(seed)
+                used_phrases.add(seed)
+
+        # bigrams — both words must be seed or descriptor
+        for bigram in all_bigrams:
+            words = bigram.split()
+            has_seed        = any(seed in words for seed in seeds)
+            both_meaningful = all(w in seeds or w in DESCRIPTORS for w in words)
+            if has_seed and both_meaningful:
+                if bigram not in used_phrases:
+                    matched_phrases.append(bigram)
+                    used_phrases.add(bigram)
+
+        if matched_phrases:
+            detected[aspect] = matched_phrases
 
     return {
         'aspects' : detected,

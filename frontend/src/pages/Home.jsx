@@ -17,12 +17,15 @@ export default function Home() {
   setResult(null)
   setAspects(null)
   try {
-    const [data, aspectData] = await Promise.all([
-      predictSentiment(text, model),
-      extractAspects(text)
-    ])
+    const data = await predictSentiment(text, model)
     setResult(data)
-    setAspects(aspectData)
+    try {
+      const aspectData = await extractAspects(text)
+      console.log('aspects:', aspectData)
+      setAspects(aspectData)
+    } catch (aspErr) {
+      console.error('Aspects error:', aspErr)
+    }
   } catch (err) {
     setError('Failed to connect to API. Make sure the server is running.')
   } finally {
